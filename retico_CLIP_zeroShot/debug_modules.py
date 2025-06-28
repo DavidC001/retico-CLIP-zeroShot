@@ -1,5 +1,5 @@
 from retico_core import AbstractConsumingModule, UpdateType
-from retico_clip_zeroShot.incremental_units import CLIPObjectFeaturesIU, CLIPClassificationIU
+from retico_CLIP_zeroShot.incremental_units import CLIPObjectFeaturesIU, CLIPClassificationIU
 
 class ObjectClassificationConsumer(AbstractConsumingModule):
         @staticmethod
