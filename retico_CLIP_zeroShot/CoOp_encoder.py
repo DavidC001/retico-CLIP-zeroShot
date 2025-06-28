@@ -54,6 +54,7 @@ class CoOpTextEncoder(nn.Module):
         
         # Get text encoder components from CLIP
         self.text_encoder = clip_model.text_model
+        self.text_projection = clip_model.text_projection
         self.token_embedding = self.text_encoder.embeddings.token_embedding
         self.positional_embedding = self.text_encoder.embeddings.position_embedding
         
@@ -156,10 +157,10 @@ class CoOpTextEncoder(nn.Module):
         prompts = self._build_prompts(ctx)
         
         # Stack and pad prompts
-        padded_prompts, attention_masks = self._pad_prompts(prompts)
+        padded_prompts, attention_masks, eos_pos = self._pad_prompts(prompts)
         
         # Pass through text encoder and get final features
-        return self._encode_text(padded_prompts, attention_masks)
+        return self._encode_text(padded_prompts, attention_masks, eos_pos)
 
 
     def _build_prompts(self, ctx: torch.Tensor) -> List[torch.Tensor]:
@@ -184,28 +185,79 @@ class CoOpTextEncoder(nn.Module):
         embed_dim = prompts[0].shape[1]
         
         padded_prompts = torch.zeros(len(prompts), max_len, embed_dim, device=self.device)
-        attention_masks = torch.zeros(len(prompts), max_len, device=self.device, dtype=torch.long)
+        attention_masks = torch.zeros(len(prompts), max_len, device=self.device)
+        eos_pos = []
         
         for i, prompt in enumerate(prompts):
             length = prompt.shape[0]
+            eos_pos += [length - 1]  # Position of [SEP] token
             padded_prompts[i, :length] = prompt
             attention_masks[i, :length] = 1
-        
-        return padded_prompts, attention_masks
+
+        return padded_prompts, attention_masks, eos_pos
     
-    def _encode_text(self, text_embeddings: torch.Tensor, attention_masks: torch.Tensor) -> torch.Tensor:
+    def _encode_text(self, text_embeddings: torch.Tensor, attention_masks: torch.Tensor, eos_pos: List[int]) -> torch.Tensor:
         """Encode text embeddings through CLIP text encoder."""
-        # Pass through text encoder
-        text_features = self.text_encoder(
-            inputs_embeds=text_embeddings,
-            attention_mask=attention_masks
-        )
+        # For CLIP, we need to manually pass through the text encoder layers
+        # since it doesn't support inputs_embeds directly
         
-        # Get the [CLS] token representation (pooled output)
-        text_features = text_features.last_hidden_state[:, 0, :]
+        # Add positional embeddings
+        seq_length = text_embeddings.shape[1]
+        # Create position_ids that maintain gradients
+        position_ids = torch.arange(seq_length, dtype=torch.long, device=self.device)
+        position_ids = position_ids.unsqueeze(0).expand(text_embeddings.shape[0], -1)
+        position_embeddings = self.positional_embedding(position_ids)
         
-        # Apply final layer norm and projection (like in original CLIP)
-        text_features = self.clip_model.text_projection(text_features)
+        # Combine token and position embeddings
+        hidden_states = text_embeddings + position_embeddings
+
+        # Convert 2D attention mask to 4D for multi-head attention
+        # Shape: [batch_size, seq_len] -> [batch_size, 1, 1, seq_len]
+        extended_attention_mask = attention_masks.unsqueeze(1).unsqueeze(1)
+        
+        # Create causal mask for text (lower triangular)
+        batch_size, seq_len = attention_masks.shape
+        causal_mask = torch.tril(torch.ones(seq_len, seq_len, device=self.device))
+        causal_mask = causal_mask.unsqueeze(0).unsqueeze(0).expand(batch_size, 1, seq_len, seq_len)
+        
+        # Combine masks: apply both padding mask and causal mask
+        combined_mask = extended_attention_mask * causal_mask
+        
+        # Convert to the format expected by the encoder (0 for masked, large negative for unmasked)
+        combined_mask = (1.0 - combined_mask) * -10000.0
+
+        hidden_states = self.text_encoder.encoder(hidden_states, attention_mask=combined_mask).last_hidden_state
+
+        # Apply final layer norm
+        hidden_states = self.text_encoder.final_layer_norm(hidden_states)
+        
+        pooled_output = hidden_states[
+            torch.arange(hidden_states.shape[0], device=hidden_states.device),
+            eos_pos
+        ]
+        
+        # Apply final projection (like in original CLIP)
+        text_features = self.text_projection(pooled_output)
         
         # Normalize features
         return text_features / text_features.norm(p=2, dim=-1, keepdim=True)
+    
+    def train(self, mode: bool = True) -> 'CoOpTextEncoder':
+        """Set training mode while keeping CLIP frozen."""
+        super().train(mode)
+        
+        # Keep CLIP model frozen but allow text encoder to process gradients
+        self.clip_model.eval()
+        for p in self.clip_model.parameters():
+            p.requires_grad_(False)
+        
+        # Set text encoder to train mode to allow gradient flow through embeddings
+        if mode:
+            self.clip_model.text_model.train()
+        else:
+            self.clip_model.text_model.eval()
+            
+        # Ensure context vectors remain learnable
+        self.ctx.requires_grad_(True)
+        
+        return self

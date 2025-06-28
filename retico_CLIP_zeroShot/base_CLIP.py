@@ -225,6 +225,7 @@ class BaseCLIPModule(retico_core.AbstractModule):
         criterion: nn.Module
     ) -> None:
         """Run the CoOp training loop."""
+        self.coop_text_encoder.train()
         for epoch in tqdm(range(self.coop_epochs)):
             total_loss = 0
             correct = 0
