@@ -31,6 +31,7 @@ setup(
         # "retico-vision",
         "torch>=1.9.0",
         "transformers>=4.20.0",
+        "tqdm",
     ],
     keywords="retico, real-time, dialogue, object detection, computer vision, CLIP, feature extraction",
     project_urls={

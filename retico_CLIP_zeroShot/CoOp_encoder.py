@@ -46,6 +46,12 @@ class CoOpTextEncoder(nn.Module):
         self.template = template
         self.n_cls = len(class_names)
         
+        # make sure the model is in evaluation mode
+        self.clip_model.eval()
+        for p in clip_model.parameters():
+            p.requires_grad_(False)
+
+        
         # Get text encoder components from CLIP
         self.text_encoder = clip_model.text_model
         self.token_embedding = self.text_encoder.embeddings.token_embedding
@@ -66,6 +72,7 @@ class CoOpTextEncoder(nn.Module):
         self.name_lens: List[int] = []
         self.class_token_embeddings: List[torch.Tensor] = []
         self._processor: Optional[CLIPProcessor] = None
+        
         
     def initialize_with_processor(self, processor: CLIPProcessor) -> None:
         """Initialize class embeddings using the processor after model loading."""
@@ -121,15 +128,15 @@ class CoOpTextEncoder(nn.Module):
                 formatted_text, 
                 return_tensors="pt", 
                 padding=False, 
-                truncation=True
+                truncation=True,
+                add_special_tokens=False # Avoid adding [CLS] and [SEP] automatically
             )["input_ids"].to(self.device)
             
-            # Get embeddings for class tokens (skip [CLS] and [SEP])
             class_embeddings = self.token_embedding(tokens).squeeze(0)
             
             # Store length and embeddings
-            self.name_lens.append(len(tokens[0]) - 2)  # Exclude [CLS] and [SEP]
-            self.class_token_embeddings.append(class_embeddings[1:-1])  # Exclude [CLS] and [SEP]
+            self.name_lens.append(len(tokens[0]))  
+            self.class_token_embeddings.append(class_embeddings) 
     
     def _register_special_tokens(self, processor: CLIPProcessor) -> None:
         """Register special token embeddings."""
@@ -139,6 +146,7 @@ class CoOpTextEncoder(nn.Module):
         
         self.register_buffer("start_token", self.token_embedding(start_token_id))
         self.register_buffer("end_token", self.token_embedding(end_token_id))
+        
         
     def forward(self) -> torch.Tensor:
         """Forward pass to generate text embeddings with learned context."""
@@ -150,12 +158,10 @@ class CoOpTextEncoder(nn.Module):
         # Stack and pad prompts
         padded_prompts, attention_masks = self._pad_prompts(prompts)
         
-        # Add positional embeddings
-        text_embeddings = self._add_positional_embeddings(padded_prompts)
-        
         # Pass through text encoder and get final features
-        return self._encode_text(text_embeddings, attention_masks)
-    
+        return self._encode_text(padded_prompts, attention_masks)
+
+
     def _build_prompts(self, ctx: torch.Tensor) -> List[torch.Tensor]:
         """Build prompt embeddings for all classes."""
         prompts = []
@@ -178,7 +184,7 @@ class CoOpTextEncoder(nn.Module):
         embed_dim = prompts[0].shape[1]
         
         padded_prompts = torch.zeros(len(prompts), max_len, embed_dim, device=self.device)
-        attention_masks = torch.zeros(len(prompts), max_len, device=self.device)
+        attention_masks = torch.zeros(len(prompts), max_len, device=self.device, dtype=torch.long)
         
         for i, prompt in enumerate(prompts):
             length = prompt.shape[0]
@@ -186,13 +192,6 @@ class CoOpTextEncoder(nn.Module):
             attention_masks[i, :length] = 1
         
         return padded_prompts, attention_masks
-    
-    def _add_positional_embeddings(self, padded_prompts: torch.Tensor) -> torch.Tensor:
-        """Add positional embeddings to the prompts."""
-        batch_size, max_len, _ = padded_prompts.shape
-        position_ids = torch.arange(max_len, device=self.device).unsqueeze(0).repeat(batch_size, 1)
-        position_embeddings = self.positional_embedding(position_ids)
-        return padded_prompts + position_embeddings
     
     def _encode_text(self, text_embeddings: torch.Tensor, attention_masks: torch.Tensor) -> torch.Tensor:
         """Encode text embeddings through CLIP text encoder."""

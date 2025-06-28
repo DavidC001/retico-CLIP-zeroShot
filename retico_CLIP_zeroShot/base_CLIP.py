@@ -10,6 +10,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from PIL import Image
+from tqdm import tqdm
 from transformers import CLIPModel, CLIPProcessor
 
 import retico_core
@@ -104,6 +105,7 @@ class BaseCLIPModule(retico_core.AbstractModule):
             if ut == retico_core.UpdateType.ADD:
                 self.queue.append(iu)
 
+
     def _load_coop_examples_from_folder(self, folder_path: str) -> Dict[str, List[Image.Image]]:
         """Load CoOp training examples from a folder structure.
         
@@ -164,7 +166,7 @@ class BaseCLIPModule(retico_core.AbstractModule):
                 
                 for img_path in files:
                     try:
-                        img = self._load_and_validate_image(img_path)
+                        img = Image.open(img_path)
                         if img:
                             class_images.append(img)
                             if self.debug_prints:
@@ -173,21 +175,7 @@ class BaseCLIPModule(retico_core.AbstractModule):
                         print(f"Error loading image {img_path}: {e}")
         
         return class_images
-    
-    def _load_and_validate_image(self, img_path: str) -> Optional[Image.Image]:
-        """Load and validate a single image."""
-        img = Image.open(img_path)
-        
-        # Convert to RGB if necessary
-        if img.mode != 'RGB':
-            img = img.convert('RGB')
-        
-        # Validate image dimensions
-        if img.width > 0 and img.height > 0:
-            return img
-        else:
-            print(f"Warning: Invalid image dimensions for {img_path}")
-            return None
+
 
     def _train_coop(self) -> None:
         """Train CoOp context vectors using provided examples."""
@@ -206,7 +194,7 @@ class BaseCLIPModule(retico_core.AbstractModule):
             return
         
         # Set up training components
-        optimizer = torch.optim.Adam([self.coop_text_encoder.ctx], lr=self.coop_lr)
+        optimizer = torch.optim.AdamW([self.coop_text_encoder.ctx], lr=self.coop_lr)
         criterion = nn.CrossEntropyLoss()
         
         # Training loop
@@ -237,9 +225,7 @@ class BaseCLIPModule(retico_core.AbstractModule):
         criterion: nn.Module
     ) -> None:
         """Run the CoOp training loop."""
-        self.coop_text_encoder.train()
-        
-        for epoch in range(self.coop_epochs):
+        for epoch in tqdm(range(self.coop_epochs)):
             total_loss = 0
             correct = 0
             
@@ -254,10 +240,9 @@ class BaseCLIPModule(retico_core.AbstractModule):
                 correct += is_correct
             
             # Log progress
-            if epoch % 10 == 0 or epoch == self.coop_epochs - 1:
-                avg_loss = total_loss / len(train_images)
-                accuracy = correct / len(train_images)
-                print(f"CoOp Epoch {epoch+1}/{self.coop_epochs}: Loss = {avg_loss:.4f}, Accuracy = {accuracy:.4f}")
+            avg_loss = total_loss / len(train_images)
+            accuracy = correct / len(train_images)
+            tqdm.write(f"Epoch {epoch + 1}/{self.coop_epochs} - Loss: {avg_loss:.4f}, Accuracy: {accuracy:.4f}")
     
     def _train_single_sample(
         self, 
@@ -301,6 +286,7 @@ class BaseCLIPModule(retico_core.AbstractModule):
             self.text_embeddings = self.coop_text_encoder()
         
         print("CoOp training completed!")
+
 
     def _initialize_clip_model(self) -> bool:
         """Initialize the CLIP model and text embeddings."""
@@ -364,6 +350,7 @@ class BaseCLIPModule(retico_core.AbstractModule):
             self.text_embeddings = text_features / text_features.norm(p=2, dim=-1, keepdim=True)
         
         print(f"Standard CLIP text embeddings shape: {self.text_embeddings.shape}")
+
 
     def shutdown(self) -> None:
         """Shutdown the module."""
