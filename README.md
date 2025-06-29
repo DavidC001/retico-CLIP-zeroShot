@@ -44,6 +44,102 @@ Both the image and object classification modules can be configured with the foll
 - `coop_epochs`: Number of training epochs for CoOp
 - `coop_lr`: Learning rate for CoOp training
 
+The `CLIPImageClassificationModule` and `CLIPObjectClassificationModule` can be instantiated with these parameters to perform zero-shot classification on images and objects, respectively.
+
+The `CLIPObjectClassificationModule` has an additional parameter:
+- `max_object_memory`: Maximum number of objects to track in memory (default: 1000). This limits the number of objects the module can remember across frames.
+- `similarity_threshold`: Cosine similarity threshold for matching objects across frames (default: 0.8). This controls how similar features must be to consider objects the same across frames.
+
+## Update Logic (ADD/COMMIT/REVOKE)
+
+The retico-CLIP-zeroShot modules implement a sophisticated update logic system that ensures stable and reliable classification results in real-time scenarios. This system uses three types of updates: **ADD**, **COMMIT**, and **REVOKE**, based on confidence levels and temporal stability.
+
+### Core Concepts
+
+- **EMA Smoothing**: Both modules use Exponential Moving Average (EMA) to smooth predictions over time, controlled by the `ema_alpha` parameter
+- **Confidence Threshold**: Predictions below `confidence_threshold` are considered unreliable
+- **Stability Frames**: A class must remain stable for `stability_frames` consecutive frames before being committed
+
+### Image Classification Update Logic
+
+The `CLIPImageClassificationModule` tracks scene-level classifications with the following logic:
+
+#### ADD (New Classification)
+- **Trigger**: First time a class is predicted with confidence above threshold
+- **Condition**: `confidence >= confidence_threshold` AND `current_class != predicted_class`
+- **Action**: Sends new classification result to downstream modules
+
+#### COMMIT (Stable Classification)
+- **Trigger**: A class has remained stable for the required number of frames
+- **Condition**: Same class predicted for `stability_frames` consecutive frames with sufficient confidence
+- **Action**: Confirms the classification is stable and reliable
+
+#### REVOKE (Unreliable Classification)
+- **Trigger**: Confidence drops below threshold or significant class change
+- **Conditions**:
+  - `confidence < confidence_threshold` (low confidence)
+  - Major class change detected
+- **Action**: Withdraws previous classification, indicating uncertainty
+
+#### Example Sequence:
+```
+Frame 1: "dog" (conf: 0.8) → ADD "dog"
+Frame 2: "dog" (conf: 0.82) → (no update, building stability)
+Frame 3: "dog" (conf: 0.85) → COMMIT "dog" (stable for 3 frames)
+Frame 4: "cat" (conf: 0.7) → REVOKE "dog", then ADD "cat"
+Frame 5: "unknown" (conf: 0.05) → REVOKE "cat"
+```
+
+### Object Classification Update Logic
+
+The `CLIPObjectClassificationModule` handles multiple objects simultaneously with more complex tracking:
+
+#### Object Tracking
+- **Feature Matching**: Uses CLIP feature similarity to match objects across frames 
+- **Persistent IDs**: Maintains consistent object IDs using `similarity_threshold`
+- **Per-Object State**: Each object has independent EMA smoothing and stability tracking
+
+#### ADD (New Objects or Changes)
+- **Triggers**:
+  - First objects detected in the scene
+  - New objects appear
+  - Existing objects change classification
+- **Action**: Updates object classifications and IDs
+
+#### COMMIT (All Objects Stable)
+- **Trigger**: All detected objects have stable classifications
+- **Condition**: Every object has maintained the same class for `stability_frames` consecutive frames
+- **Action**: Confirms all object classifications are stable
+
+#### REVOKE (Objects Disappeared or Unreliable)
+- **Triggers**:
+  - All objects disappear from the scene
+  - Object classifications become unreliable (low confidence)
+- **Action**: Withdraws object classifications
+
+#### Memory Management
+- **Object Memory**: Maintains feature vectors for up to `max_object_memory` objects
+- **State Cleanup**: Automatically removes states for disappeared objects
+- **Feature Similarity**: Uses cosine similarity to match objects across frames
+
+#### Example Sequence:
+```
+Frame 1: [obj1: "dog" (conf: 0.8)] → ADD objects
+Frame 2: [obj1: "dog" (conf: 0.82)] → (building stability)
+Frame 3: [obj1: "dog" (conf: 0.85), obj2: "car" (conf: 0.9)] → ADD objects (new car detected)
+Frame 4: [obj1: "dog" (conf: 0.87), obj2: "car" (conf: 0.91)] → (building stability)
+Frame 5: [obj1: "dog" (conf: 0.86), obj2: "car" (conf: 0.89)] → COMMIT objects (all stable)
+Frame 6: [] → REVOKE objects (all disappeared)
+```
+
+### Configuration Tips
+
+- **Higher `ema_alpha`**: More responsive to changes, less stable
+- **Lower `ema_alpha`**: More stable, slower to adapt
+- **Higher `confidence_threshold`**: More conservative, fewer false positives
+- **More `stability_frames`**: More stable output, slower response to changes
+- **Higher `similarity_threshold`**: Stricter object matching, more new IDs assigned
+
 ### Project Structure
 
 ```
