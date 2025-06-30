@@ -49,6 +49,7 @@ The `CLIPImageClassificationModule` and `CLIPObjectClassificationModule` can be 
 The `CLIPObjectClassificationModule` has an additional parameter:
 - `max_object_memory`: Maximum number of objects to track in memory (default: 1000). This limits the number of objects the module can remember across frames.
 - `similarity_threshold`: Cosine similarity threshold for matching objects across frames (default: 0.8). This controls how similar features must be to consider objects the same across frames.
+Note that the module uses a greedy approach to match objects across frames, the order of processing is the same as the order of the DetectedObjectsIU input.
 
 ## Update Logic (ADD/COMMIT/REVOKE)
 
