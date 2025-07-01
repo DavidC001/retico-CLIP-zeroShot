@@ -170,13 +170,14 @@ class CLIPImageClassificationModule(BaseCLIPModule):
             image, classifications, top_class, confidence, class_probabilities
         )
         
-        um = retico_core.UpdateMessage.from_iu(output_iu, update_type)
-        self.append(um)
         
         # Update state tracking
         if update_type in [retico_core.UpdateType.ADD, retico_core.UpdateType.COMMIT]:
+            um = retico_core.UpdateMessage.from_iu(output_iu, update_type)
+            self.append(um)
             self.last_output_iu = output_iu
         elif update_type == retico_core.UpdateType.REVOKE:
+            self.revoke(self.last_output_iu)
             self.last_output_iu = None
 
     def _determine_update_type(self, predicted_class: str, confidence: float) -> Optional[retico_core.UpdateType]:

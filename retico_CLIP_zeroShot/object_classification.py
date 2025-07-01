@@ -190,13 +190,14 @@ class CLIPObjectClassificationModule(BaseCLIPModule):
                     # Store the matched object IDs in the output IU for debugging/tracking
                     output_iu.object_ids = matched_ids
                     
-                    um = retico_core.UpdateMessage.from_iu(output_iu, update_type)
-                    self.append(um)
                     
                     # Update state tracking
                     if update_type == retico_core.UpdateType.ADD or update_type == retico_core.UpdateType.COMMIT:
+                        um = retico_core.UpdateMessage.from_iu(output_iu, update_type)
+                        self.append(um)
                         self.last_output_iu = output_iu
                     elif update_type == retico_core.UpdateType.REVOKE:
+                        self.revoke(self.last_output_iu)
                         self.last_output_iu = None
 
                 self.last_object_count = object_count
