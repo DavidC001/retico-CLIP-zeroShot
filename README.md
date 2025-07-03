@@ -10,18 +10,19 @@ If needed, it also allow to define a small set of training examples to fine-tune
 
 ## Installation
 
-### Step 1: Install the package
-
-```bash
-pip install git+https://github.com/retico-team/retico-CLIP-zeroShot.git
-```
-
-### Step 2: Install retico-vision dependency
-Since this module depends on `retico-vision`, you need to install it and add it to your Python path:
+### Step 1: Install retico dependencies
+First, ensure you have the `retico-core` and `retico-vision` modules installed.
+The `retico-vision` module needs to be installed and added to your Python path:
 ```bash
 git clone https://github.com/retico-team/retico-vision.git
 ```
 **Important**: Make sure to add the path to the `retico-vision` library to your `PYTHONPATH` environment variable. This is required for the module to properly import the vision components.
+
+### Step 2: Install the package
+
+```bash
+pip install git+https://github.com/retico-team/retico-CLIP-zeroShot.git
+```
 
 ## Usage
 For a basic example of how to use the `retico-CLIP-zeroShot` module, refer to the `example_scene_classification.py` and `example_object_classification.py` files inside the `examples` directory of the repository.

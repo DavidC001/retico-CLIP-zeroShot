@@ -27,7 +27,7 @@ setup(
     packages=find_packages(),
     python_requires=">=3.7",
     install_requires=[
-        "retico-core",
+        # "retico-core",
         # "retico-vision",
         "torch>=1.9.0",
         "transformers>=4.20.0",
