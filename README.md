@@ -16,7 +16,7 @@ The `retico-vision` module needs to be installed and added to your Python path:
 ```bash
 git clone https://github.com/retico-team/retico-vision.git
 ```
-**Important**: Make sure to add the path to the `retico-vision` library to your `PYTHONPATH` environment variable. This is required for the module to properly import the vision components.
+**Important**: Make sure to add the path to the `retico-vision` and `retico-core` libraries to your `PYTHONPATH` environment variable. This is required for the module to properly import the vision components.
 
 ### Step 2: Install the package
 
